@@ -1,42 +1,31 @@
-export class PreRegisteredDeviceManager {
-  private static readonly CONFIG_FILE_PATH = './config/devices.json';
-  private static allowedDevices: Set<string> = new Set();
+export interface DeviceRecord {
+  fingerprint: string;
+  userId: number;
+  registeredAt: string;
+  lastUsed?: string;
+}
 
+export class PreRegisteredDeviceManager {
+  private static readonly CONFIG_FILE_PATH = '../.env';
+  private static deviceRecords: Map<string, DeviceRecord> = new Map(); // 使用Map存储设备记录
   static async initialize(): Promise<void> {
     try {
       await this.loadDeviceConfig();
     } catch (error) {
       console.log('No existing device config found, using defaults');
-      this.allowedDevices.add('dev-test-device');
     }
   }
 
   static isDeviceAllowed(deviceFingerprint: string): boolean {
-    return this.allowedDevices.has(deviceFingerprint);
+    return this.deviceRecords.has(deviceFingerprint);
   }
 
-  static addDevice(deviceFingerprint: string): void {
-    if (this.isValidFingerprint(deviceFingerprint)) {
-      this.allowedDevices.add(deviceFingerprint);
-      console.log(`Device ${deviceFingerprint} registered successfully`);
-      this.saveDeviceConfig();
-    } else {
-      throw new Error('Invalid device fingerprint format');
-    }
+  static getAllowedDevices(): DeviceRecord[] {
+    return Array.from(this.deviceRecords.values());
   }
 
-  static removeDevice(deviceFingerprint: string): void {
-    this.allowedDevices.delete(deviceFingerprint);
-    console.log(`Device ${deviceFingerprint} removed`);
-    this.saveDeviceConfig();
-  }
-
-  static getAllowedDevices(): string[] {
-    return Array.from(this.allowedDevices);
-  }
-
-  private static isValidFingerprint(fingerprint: string): boolean {
-    return /^[a-f0-9]{32}$/.test(fingerprint);
+  static getUserDevices(userId: number): DeviceRecord[] {
+    return Array.from(this.deviceRecords.values()).filter(device => device.userId === userId);
   }
 
   private static async loadDeviceConfig(): Promise<void> {
@@ -45,39 +34,48 @@ export class PreRegisteredDeviceManager {
         const fs = await import('fs');
         if (fs.existsSync(this.CONFIG_FILE_PATH)) {
           const config = JSON.parse(fs.readFileSync(this.CONFIG_FILE_PATH, 'utf8'));
-          this.allowedDevices = new Set(config.devices || []);
+          // 从旧格式转换
+          if (Array.isArray(config.devices)) {
+            // 旧格式，假设所有设备都属于用户1
+            config.devices.forEach((fingerprint: string) => {
+              this.deviceRecords.set(fingerprint, {
+                fingerprint,
+                userId: 1,
+                registeredAt: new Date().toISOString()
+              });
+            });
+          } else if (Array.isArray(config.records)) {
+            // 新格式
+            config.records.forEach((record: DeviceRecord) => {
+              this.deviceRecords.set(record.fingerprint, record);
+            });
+          }
         }
       } else {
         const { readFileSync, existsSync } = await import('fs');
         if (existsSync(this.CONFIG_FILE_PATH)) {
           const config = JSON.parse(readFileSync(this.CONFIG_FILE_PATH, 'utf8'));
-          this.allowedDevices = new Set(config.devices || []);
+          // 从旧格式转换
+          if (Array.isArray(config.devices)) {
+            // 旧格式，假设所有设备都属于用户1
+            config.devices.forEach((fingerprint: string) => {
+              this.deviceRecords.set(fingerprint, {
+                fingerprint,
+                userId: 1,
+                registeredAt: new Date().toISOString()
+              });
+            });
+          } else if (Array.isArray(config.records)) {
+            // 新格式
+            config.records.forEach((record: DeviceRecord) => {
+              this.deviceRecords.set(record.fingerprint, record);
+            });
+          }
         }
       }
     } catch (error) {
       console.error('Failed to load device config:', error);
       throw error;
-    }
-  }
-
-  private static saveDeviceConfig(): void {
-    try {
-      const config = {
-        devices: Array.from(this.allowedDevices),
-        updatedAt: new Date().toISOString()
-      };
-
-      if (typeof Bun !== 'undefined') {
-        const fs = require('fs');
-        fs.writeFileSync(this.CONFIG_FILE_PATH, JSON.stringify(config, null, 2));
-      } else {
-        const { writeFileSync } = require('fs');
-        writeFileSync(this.CONFIG_FILE_PATH, JSON.stringify(config, null, 2));
-      }
-
-      console.log('Device config saved successfully');
-    } catch (error) {
-      console.error('Failed to save device config:', error);
     }
   }
 }

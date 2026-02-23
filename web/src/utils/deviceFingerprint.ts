@@ -42,8 +42,8 @@ export class DeviceFingerprintGenerator {
     if (!gl) return '';
 
     try {
-      const renderer = gl.getParameter(gl.RENDERER);
-      const vendor = gl.getParameter(gl.VENDOR);
+      const renderer = (gl as WebGLRenderingContext).getParameter(WebGLRenderingContext.RENDERER);
+      const vendor = (gl as WebGLRenderingContext).getParameter(WebGLRenderingContext.VENDOR);
       return `${renderer}-${vendor}`;
     } catch (e) {
       return '';

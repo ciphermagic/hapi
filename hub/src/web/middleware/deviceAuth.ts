@@ -18,9 +18,16 @@ const jwtPayloadSchema = z.object({
 export function createDeviceBasedAuthMiddleware(jwtSecret: Uint8Array): MiddlewareHandler<DeviceAuthEnv> {
   return async (c, next) => {
     try {
-      const deviceFingerprint = c.req.header('X-Device-Fingerprint');
+      // 从请求头或查询参数获取设备指纹
+      let deviceFingerprint = c.req.header('X-Device-Fingerprint');
       if (!deviceFingerprint) {
-        console.warn('Device fingerprint missing in request');
+        // 尝试从查询参数获取（主要用于 SSE 连接）
+        const queryParams = c.req.query();
+        deviceFingerprint = queryParams.deviceFingerprint;
+      }
+
+      if (!deviceFingerprint) {
+        console.warn('Device fingerprint missing in request header and query parameters');
         return c.json({
           error: 'Device fingerprint required for security verification',
           code: 'DEVICE_FINGERPRINT_MISSING',
@@ -48,17 +55,21 @@ export function createDeviceBasedAuthMiddleware(jwtSecret: Uint8Array): Middlewa
         }, 403);
       }
 
+      // 获取 JWT token，兼容头部和查询参数两种方式
       const authHeader = c.req.header('Authorization');
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        console.warn('Invalid authorization header format');
+      const path = c.req.path;
+      const tokenFromHeader = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : undefined;
+      const tokenFromQuery = path === '/api/events' ? c.req.query().token : undefined;
+      const accessToken = tokenFromHeader ?? tokenFromQuery;
+
+      if (!accessToken) {
+        console.warn('Authorization token missing in request header and query parameters');
         return c.json({
-          error: 'Invalid authorization header format',
-          code: 'INVALID_AUTH_HEADER',
-          hint: 'Authorization header should be in format: Bearer <token>'
+          error: 'Authorization token required for authentication',
+          code: 'AUTH_TOKEN_MISSING',
+          hint: 'Authorization token should be provided in header as Bearer token or as query parameter for SSE connections'
         }, 401);
       }
-
-      const accessToken = authHeader.substring(7);
 
       try {
         const verified = await jwtVerify(accessToken, jwtSecret, { algorithms: ['HS256'] });

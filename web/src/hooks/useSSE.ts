@@ -4,6 +4,7 @@ import { isObject } from '@hapi/protocol'
 import type { SyncEvent } from '@/types/api'
 import { queryKeys } from '@/lib/query-keys'
 import { clearMessageWindow, ingestIncomingMessages } from '@/lib/message-window-store'
+import { DeviceManager } from '@/utils/deviceManager'
 
 type SSESubscription = {
     all?: boolean
@@ -26,7 +27,8 @@ function buildEventsUrl(
     baseUrl: string,
     token: string,
     subscription: SSESubscription,
-    visibility: VisibilityState
+    visibility: VisibilityState,
+    deviceFingerprint?: string
 ): string {
     const params = new URLSearchParams()
     params.set('token', token)
@@ -39,6 +41,9 @@ function buildEventsUrl(
     }
     if (subscription.machineId) {
         params.set('machineId', subscription.machineId)
+    }
+    if (deviceFingerprint) {
+        params.set('deviceFingerprint', deviceFingerprint)
     }
 
     const path = `/api/events?${params.toString()}`
@@ -103,88 +108,111 @@ export function useSSE(options: {
             return
         }
 
-        setSubscriptionId(null)
-        const url = buildEventsUrl(options.baseUrl, options.token, {
-            ...subscription,
-            sessionId: subscription.sessionId ?? undefined
-        }, getVisibilityState())
-        const eventSource = new EventSource(url)
-        eventSourceRef.current = eventSource
+        // 异步获取设备指纹并建立 SSE 连接
+        let currentEventSource: EventSource | null = null;
 
-        const handleSyncEvent = (event: SyncEvent) => {
-            if (event.type === 'connection-changed') {
-                const data = event.data
-                if (data && typeof data === 'object' && 'subscriptionId' in data) {
-                    const nextId = (data as { subscriptionId?: unknown }).subscriptionId
-                    if (typeof nextId === 'string' && nextId.length > 0) {
-                        setSubscriptionId(nextId)
-                    }
-                }
-            }
+        const initializeSSEConnection = async () => {
+            setSubscriptionId(null)
 
-            if (event.type === 'toast') {
-                onToastRef.current?.(event)
-                return
-            }
-
-            if (event.type === 'message-received') {
-                ingestIncomingMessages(event.sessionId, [event.message])
-            }
-
-            if (event.type === 'session-added' || event.type === 'session-updated' || event.type === 'session-removed') {
-                void queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
-                if ('sessionId' in event) {
-                    if (event.type === 'session-removed') {
-                        void queryClient.removeQueries({ queryKey: queryKeys.session(event.sessionId) })
-                        clearMessageWindow(event.sessionId)
-                    } else {
-                        void queryClient.invalidateQueries({ queryKey: queryKeys.session(event.sessionId) })
-                    }
-                }
-            }
-
-            if (event.type === 'machine-updated') {
-                void queryClient.invalidateQueries({ queryKey: queryKeys.machines })
-            }
-
-            onEventRef.current(event)
-        }
-
-        const handleMessage = (message: MessageEvent<string>) => {
-            if (typeof message.data !== 'string') {
-                return
-            }
-
-            let parsed: unknown
             try {
-                parsed = JSON.parse(message.data)
-            } catch {
-                return
-            }
+                // 获取设备指纹
+                const deviceManager = DeviceManager.getInstance();
+                await deviceManager.initialize();
+                const deviceFingerprint = deviceManager.getDeviceFingerprint();
 
-            if (!isObject(parsed)) {
-                return
-            }
-            if (typeof parsed.type !== 'string') {
-                return
-            }
+                // 构建带设备指纹的 URL
+                const url = buildEventsUrl(options.baseUrl, options.token, {
+                    ...subscription,
+                    sessionId: subscription.sessionId ?? undefined
+                }, getVisibilityState(), deviceFingerprint || undefined)
 
-            handleSyncEvent(parsed as SyncEvent)
+                currentEventSource = new EventSource(url)
+                eventSourceRef.current = currentEventSource
+
+                const handleSyncEvent = (event: SyncEvent) => {
+                    if (event.type === 'connection-changed') {
+                        const data = event.data
+                        if (data && typeof data === 'object' && 'subscriptionId' in data) {
+                            const nextId = (data as { subscriptionId?: unknown }).subscriptionId
+                            if (typeof nextId === 'string' && nextId.length > 0) {
+                                setSubscriptionId(nextId)
+                            }
+                        }
+                    }
+
+                    if (event.type === 'toast') {
+                        onToastRef.current?.(event)
+                        return
+                    }
+
+                    if (event.type === 'message-received') {
+                        ingestIncomingMessages(event.sessionId, [event.message])
+                    }
+
+                    if (event.type === 'session-added' || event.type === 'session-updated' || event.type === 'session-removed') {
+                        void queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
+                        if ('sessionId' in event) {
+                            if (event.type === 'session-removed') {
+                                void queryClient.removeQueries({ queryKey: queryKeys.session(event.sessionId) })
+                                clearMessageWindow(event.sessionId)
+                            } else {
+                                void queryClient.invalidateQueries({ queryKey: queryKeys.session(event.sessionId) })
+                            }
+                        }
+                    }
+
+                    if (event.type === 'machine-updated') {
+                        void queryClient.invalidateQueries({ queryKey: queryKeys.machines })
+                    }
+
+                    onEventRef.current(event)
+                }
+
+                const handleMessage = (message: MessageEvent<string>) => {
+                    if (typeof message.data !== 'string') {
+                        return
+                    }
+
+                    let parsed: unknown
+                    try {
+                        parsed = JSON.parse(message.data)
+                    } catch {
+                        return
+                    }
+
+                    if (!isObject(parsed)) {
+                        return
+                    }
+                    if (typeof parsed.type !== 'string') {
+                        return
+                    }
+
+                    handleSyncEvent(parsed as SyncEvent)
+                }
+
+                currentEventSource.onmessage = handleMessage
+                currentEventSource.onopen = () => {
+                    onConnectRef.current?.()
+                }
+                currentEventSource.onerror = (error) => {
+                    onErrorRef.current?.(error)
+                    const reason = currentEventSource?.readyState === EventSource.CLOSED ? 'closed' : 'error'
+                    onDisconnectRef.current?.(reason)
+                }
+
+            } catch (error) {
+                console.error('Error initializing SSE connection:', error)
+                onErrorRef.current?.(error)
+                onDisconnectRef.current?.('initialization-error')
+                setSubscriptionId(null)
+            }
         }
 
-        eventSource.onmessage = handleMessage
-        eventSource.onopen = () => {
-            onConnectRef.current?.()
-        }
-        eventSource.onerror = (error) => {
-            onErrorRef.current?.(error)
-            const reason = eventSource.readyState === EventSource.CLOSED ? 'closed' : 'error'
-            onDisconnectRef.current?.(reason)
-        }
+        initializeSSEConnection();
 
         return () => {
-            eventSource.close()
-            if (eventSourceRef.current === eventSource) {
+            currentEventSource?.close();
+            if (eventSourceRef.current === currentEventSource) {
                 eventSourceRef.current = null
             }
             setSubscriptionId(null)

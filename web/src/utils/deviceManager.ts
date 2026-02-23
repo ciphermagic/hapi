@@ -1,26 +1,46 @@
 import { DeviceFingerprintGenerator } from './deviceFingerprint';
 
-export class SecurityInitializer {
-  private static instance: SecurityInitializer;
+const DEVICE_FINGERPRINT_KEY = 'hapi_device_fingerprint';
+
+export class DeviceManager {
+  private static instance: DeviceManager;
   private deviceFingerprint: string | null = null;
 
-  static getInstance(): SecurityInitializer {
+  static getInstance(): DeviceManager {
     if (!this.instance) {
-      this.instance = new SecurityInitializer();
+      this.instance = new DeviceManager();
     }
     return this.instance;
   }
 
   async initialize(): Promise<void> {
-    try {
-      this.deviceFingerprint = await DeviceFingerprintGenerator.generateFingerprint();
-      this.injectDeviceFingerprintToRequests();
-      this.createSecurityUI();
+    // 尝试从localStorage加载设备指纹
+    this.deviceFingerprint = this.loadDeviceFingerprint();
 
-      console.log('Security layer initialized with fingerprint:', this.deviceFingerprint);
+    // 如果没有存储的指纹，则生成新的指纹并保存到localStorage
+    if (!this.deviceFingerprint) {
+      this.deviceFingerprint = await DeviceFingerprintGenerator.generateFingerprint();
+      this.saveDeviceFingerprint(this.deviceFingerprint);
+    }
+
+    this.injectDeviceFingerprintToRequests();
+    this.createSecurityUI();
+  }
+
+  private loadDeviceFingerprint(): string | null {
+    try {
+      return localStorage.getItem(DEVICE_FINGERPRINT_KEY);
     } catch (error) {
-      console.error('Security initialization failed:', error);
-      this.showErrorNotification('Security initialization failed');
+      console.error('Error reading device fingerprint from localStorage:', error);
+      return null;
+    }
+  }
+
+  private saveDeviceFingerprint(fingerprint: string): void {
+    try {
+      localStorage.setItem(DEVICE_FINGERPRINT_KEY, fingerprint);
+    } catch (error) {
+      console.error('Error saving device fingerprint to localStorage:', error);
     }
   }
 
@@ -39,6 +59,11 @@ export class SecurityInitializer {
   }
 
   private createSecurityUI(): void {
+    // 确保安全UI只创建一次
+    if (document.getElementById('hapi-security-info')) {
+      return;
+    }
+
     const securityDiv = document.createElement('div');
     securityDiv.id = 'hapi-security-info';
     securityDiv.style.cssText = `
@@ -57,7 +82,20 @@ export class SecurityInitializer {
     `;
 
     securityDiv.innerHTML = `
-      <div><strong>HAPI Security Info</strong></div>
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+        <div><strong>HAPI Security Info</strong></div>
+        <button id="close-security-ui-btn" style="
+          background: #ff4444;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          padding: 2px 6px;
+          font-size: 14px;
+          font-weight: bold;
+          margin-left: 8px;
+        ">&times;</button>
+      </div>
       <div>Device Fingerprint:</div>
       <div id="device-fingerprint-display">${this.deviceFingerprint?.substring(0, 16)}...</div>
       <button id="copy-fingerprint-btn" style="
@@ -92,15 +130,19 @@ export class SecurityInitializer {
     document.getElementById('show-full-fingerprint-btn')?.addEventListener('click', () => {
       this.showFullFingerprint();
     });
+
+    document.getElementById('close-security-ui-btn')?.addEventListener('click', () => {
+      this.hideSecurityUI();
+    });
   }
 
   private async copyFingerprint(): Promise<void> {
     try {
       await navigator.clipboard.writeText(this.deviceFingerprint!);
-      this.showSuccessNotification('Device fingerprint copied to clipboard!');
+      this.showNotification('Device fingerprint copied to clipboard!', 'success');
     } catch (err) {
       console.error('Failed to copy fingerprint:', err);
-      this.showErrorNotification('Failed to copy fingerprint. Please manually select and copy.');
+      this.showNotification('Failed to copy fingerprint. Please manually select and copy.', 'error');
     }
   }
 
@@ -151,12 +193,11 @@ export class SecurityInitializer {
     }
   }
 
-  private showErrorNotification(message: string): void {
-    this.showNotification(message, 'error');
-  }
-
-  private showSuccessNotification(message: string): void {
-    this.showNotification(message, 'success');
+  private hideSecurityUI(): void {
+    const securityDiv = document.getElementById('hapi-security-info');
+    if (securityDiv) {
+      securityDiv.style.display = 'none';
+    }
   }
 
   private showNotification(message: string, type: 'error' | 'success' | 'info'): void {
@@ -195,12 +236,3 @@ export class SecurityInitializer {
     return this.deviceFingerprint;
   }
 }
-
-const securityInitializer = SecurityInitializer.getInstance();
-securityInitializer.initialize()
-  .then(() => {
-    console.log('Security initialization complete');
-  })
-  .catch(error => {
-    console.error('Security initialization failed:', error);
-  });

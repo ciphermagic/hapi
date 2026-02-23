@@ -9,7 +9,6 @@ import { PROTOCOL_VERSION } from '@hapi/protocol'
 import type { SyncEngine } from '../sync/syncEngine'
 import { createAuthMiddleware, type WebAppEnv } from './middleware/auth'
 import { createDeviceBasedAuthMiddleware } from './middleware/deviceAuth'
-import { createSecurityInjectionMiddleware } from './middleware/securityInjection'
 import { createAuthRoutes } from './routes/auth'
 import { createBindRoutes } from './routes/bind'
 import { createEventsRoutes } from './routes/events'
@@ -140,8 +139,6 @@ from GitHub Pages instead of through the relay tunnel.
             return app
         }
 
-        app.use('*', createSecurityInjectionMiddleware())
-
         app.use('*', async (c, next) => {
             if (c.req.path.startsWith('/api')) {
                 return await next()
@@ -184,8 +181,6 @@ from GitHub Pages instead of through the relay tunnel.
     }
 
     app.use('/assets/*', serveStatic({ root: distDir }))
-
-    app.use('*', createSecurityInjectionMiddleware())
 
     app.use('*', async (c, next) => {
         if (c.req.path.startsWith('/api')) {
