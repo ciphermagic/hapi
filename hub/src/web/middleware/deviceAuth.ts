@@ -46,8 +46,6 @@ export function createDeviceBasedAuthMiddleware(jwtSecret: Uint8Array): Middlewa
 
       if (!PreRegisteredDeviceManager.isDeviceAllowed(deviceFingerprint)) {
         console.warn(`Unauthorized device access attempt: ${deviceFingerprint}`);
-        console.log(`Registered devices:`, PreRegisteredDeviceManager.getAllowedDevices());
-
         return c.json({
           error: 'Device not authorized',
           code: 'DEVICE_NOT_AUTHORIZED',
