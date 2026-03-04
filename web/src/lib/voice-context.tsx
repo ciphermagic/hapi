@@ -1,72 +1,99 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
-import type { ConversationStatus, StatusCallback } from '@/realtime/types'
-import { startRealtimeSession, stopRealtimeSession, voiceHooks } from '@/realtime'
-import { getElevenLabsCodeFromPreference } from '@/lib/languages'
+import { createContext, useCallback, useContext, useState, useRef, type ReactNode } from 'react'
+import { SpeechRecognitionService, type RecognitionStatus } from './speech-recognition'
+
+// 简化的状态类型，与原有的 ConversationStatus 兼容
+type VoiceStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
 interface VoiceContextValue {
-    status: ConversationStatus
+    status: VoiceStatus
     errorMessage: string | null
-    micMuted: boolean
     currentSessionId: string | null
-    setStatus: (status: ConversationStatus, errorMessage?: string) => void
-    setMicMuted: (muted: boolean) => void
-    toggleMic: () => void
-    startVoice: (sessionId: string) => Promise<void>
-    stopVoice: () => Promise<void>
+    startVoice: (
+        sessionId: string,
+        onTranscript: (text: string, isFinal: boolean) => void
+    ) => Promise<void>
+    stopVoice: () => void
+    isActive: boolean
 }
 
 const VoiceContext = createContext<VoiceContextValue | null>(null)
 
 export function VoiceProvider({ children }: { children: ReactNode }) {
-    const [status, setStatusInternal] = useState<ConversationStatus>('disconnected')
+    const [status, setStatus] = useState<VoiceStatus>('disconnected')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
-    const [micMuted, setMicMuted] = useState(false)
     const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+    const recognitionRef = useRef<SpeechRecognitionService | null>(null)
 
-    const setStatus: StatusCallback = useCallback((newStatus, error) => {
-        setStatusInternal(newStatus)
+    const handleStatusChange = useCallback((newStatus: RecognitionStatus, error?: string) => {
+        setStatus(newStatus)
         if (newStatus === 'error') {
-            setErrorMessage(error ?? null)
+            setErrorMessage(error ?? '语音识别出错')
+            // 3秒后自动清除错误消息
+            setTimeout(() => setErrorMessage(null), 3000)
         } else if (newStatus === 'connected') {
             setErrorMessage(null)
         }
     }, [])
 
-    const toggleMic = useCallback(() => {
-        setMicMuted((prev) => !prev)
-    }, [])
+    const startVoice = useCallback(
+        async (sessionId: string, onTranscript: (text: string, isFinal: boolean) => void) => {
+            try {
+                // 检查浏览器支持
+                if (!SpeechRecognitionService.isSupported()) {
+                    setStatus('error')
+                    setErrorMessage('当前浏览器不支持语音识别，请使用 Chrome、Safari 或 Edge')
+                    return
+                }
 
-    const startVoice = useCallback(async (sessionId: string) => {
-        setCurrentSessionId(sessionId)
-        const initialContext = voiceHooks.onVoiceStarted(sessionId)
+                setCurrentSessionId(sessionId)
 
-        // Read voice language preference from localStorage
-        const voiceLang = localStorage.getItem('hapi-voice-lang')
-        const elevenLabsLang = getElevenLabsCodeFromPreference(voiceLang)
+                // 读取语言偏好
+                const voiceLang = localStorage.getItem('hapi-voice-lang') || 'zh-CN'
 
-        await startRealtimeSession(sessionId, initialContext, elevenLabsLang)
-    }, [])
+                // 创建语音识别服务
+                const recognition = new SpeechRecognitionService(
+                    onTranscript,
+                    handleStatusChange,
+                    {
+                        continuous: true,
+                        interimResults: true,
+                    }
+                )
 
-    const stopVoice = useCallback(async () => {
-        voiceHooks.onVoiceStopped()
-        await stopRealtimeSession()
+                recognitionRef.current = recognition
+
+                // 启动识别
+                await recognition.start(voiceLang)
+            } catch (error) {
+                console.error('Failed to start voice recognition:', error)
+                setStatus('error')
+                setErrorMessage('无法启动语音识别')
+            }
+        },
+        [handleStatusChange]
+    )
+
+    const stopVoice = useCallback(() => {
+        if (recognitionRef.current) {
+            recognitionRef.current.stop()
+            recognitionRef.current = null
+        }
         setCurrentSessionId(null)
-        setStatusInternal('disconnected')
+        setStatus('disconnected')
         setErrorMessage(null)
     }, [])
+
+    const isActive = status === 'connected' || status === 'connecting'
 
     return (
         <VoiceContext.Provider
             value={{
                 status,
                 errorMessage,
-                micMuted,
                 currentSessionId,
-                setStatus,
-                setMicMuted,
-                toggleMic,
                 startVoice,
-                stopVoice
+                stopVoice,
+                isActive,
             }}
         >
             {children}

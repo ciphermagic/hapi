@@ -17,7 +17,7 @@ import { useAppGoBack } from '@/hooks/useAppGoBack'
 import { useTranslation } from '@/lib/use-translation'
 import { VoiceProvider } from '@/lib/voice-context'
 import { requireHubUrlForLogin } from '@/lib/runtime-config'
-import { LoginPrompt } from '@/components/LoginPrompt'
+import { LoginPromptWithDeviceInfo } from '@/components/LoginPromptWithDeviceInfo'
 import { InstallPrompt } from '@/components/InstallPrompt'
 import { OfflineBanner } from '@/components/OfflineBanner'
 import { SyncingBanner } from '@/components/SyncingBanner'
@@ -26,6 +26,7 @@ import { VoiceErrorBanner } from '@/components/VoiceErrorBanner'
 import { LoadingState } from '@/components/LoadingState'
 import { ToastContainer } from '@/components/ToastContainer'
 import { ToastProvider, useToast } from '@/lib/toast-context'
+import { DeviceManager } from '@/utils/deviceManager'
 import type { SyncEvent } from '@/types/api'
 
 type ToastEvent = Extract<SyncEvent, { type: 'toast' }>
@@ -50,6 +51,21 @@ function AppInner() {
     const matchRoute = useMatchRoute()
     const router = useRouter()
     const { addToast } = useToast()
+
+    // 初始化设备管理器
+    useEffect(() => {
+        const initializeDeviceSecurity = async () => {
+            try {
+                const deviceManager = DeviceManager.getInstance();
+                await deviceManager.initialize();
+                console.log('Device security layer initialized');
+            } catch (error) {
+                console.error('Failed to initialize device security layer:', error);
+            }
+        };
+
+        initializeDeviceSecurity();
+    }, []);
 
     useEffect(() => {
         const tg = getTelegramWebApp()
@@ -271,7 +287,7 @@ function AppInner() {
     // No auth source (browser environment, not logged in)
     if (!authSource) {
         return (
-            <LoginPrompt
+            <LoginPromptWithDeviceInfo
                 onLogin={setAccessToken}
                 baseUrl={baseUrl}
                 serverUrl={serverUrl}
@@ -284,7 +300,7 @@ function AppInner() {
 
     if (needsBinding) {
         return (
-            <LoginPrompt
+            <LoginPromptWithDeviceInfo
                 mode="bind"
                 onBind={bind}
                 baseUrl={baseUrl}
@@ -311,7 +327,7 @@ function AppInner() {
         // If using access token and auth failed, show login again
         if (authSource.type === 'accessToken') {
             return (
-                <LoginPrompt
+                <LoginPromptWithDeviceInfo
                     onLogin={setAccessToken}
                     baseUrl={baseUrl}
                     serverUrl={serverUrl}

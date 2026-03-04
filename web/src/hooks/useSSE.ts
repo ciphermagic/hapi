@@ -12,6 +12,7 @@ import type {
 } from '@/types/api'
 import { queryKeys } from '@/lib/query-keys'
 import { clearMessageWindow, ingestIncomingMessages } from '@/lib/message-window-store'
+import { DeviceManager } from '@/utils/deviceManager'
 
 type SSESubscription = {
     all?: boolean
@@ -137,7 +138,8 @@ function buildEventsUrl(
     baseUrl: string,
     token: string,
     subscription: SSESubscription,
-    visibility: VisibilityState
+    visibility: VisibilityState,
+    deviceFingerprint?: string
 ): string {
     const params = new URLSearchParams()
     params.set('token', token)
@@ -150,6 +152,9 @@ function buildEventsUrl(
     }
     if (subscription.machineId) {
         params.set('machineId', subscription.machineId)
+    }
+    if (deviceFingerprint) {
+        params.set('deviceFingerprint', deviceFingerprint)
     }
 
     const path = `/api/events?${params.toString()}`
@@ -236,15 +241,28 @@ export function useSSE(options: {
             return
         }
 
-        setSubscriptionId(null)
-        const url = buildEventsUrl(options.baseUrl, options.token, {
-            ...subscription,
-            sessionId: subscription.sessionId ?? undefined
-        }, getVisibilityState())
-        const eventSource = new EventSource(url)
+        // 异步获取设备指纹并建立 SSE 连接
+        let currentEventSource: EventSource | null = null;
+
+        const initializeSSEConnection = async () => {
+            setSubscriptionId(null)
+
+            try {
+                // 获取设备指纹
+                const deviceManager = DeviceManager.getInstance();
+                await deviceManager.initialize();
+                const deviceFingerprint = deviceManager.getDeviceFingerprint();
+
+                // 构建带设备指纹的 URL
+                const url = buildEventsUrl(options.baseUrl, options.token, {
+                    ...subscription,
+                    sessionId: subscription.sessionId ?? undefined
+                }, getVisibilityState(), deviceFingerprint || undefined)
+
+                currentEventSource = new EventSource(url)
         let disconnectNotified = false
         let reconnectRequested = false
-        eventSourceRef.current = eventSource
+                eventSourceRef.current = currentEventSource
         lastActivityAtRef.current = Date.now()
 
         const scheduleReconnect = () => {
@@ -462,31 +480,31 @@ export function useSSE(options: {
             })
         }
 
-        const handleSyncEvent = (event: SyncEvent) => {
+                const handleSyncEvent = (event: SyncEvent) => {
             lastActivityAtRef.current = Date.now()
 
             if (event.type === 'heartbeat') {
                 return
             }
 
-            if (event.type === 'connection-changed') {
-                const data = event.data
-                if (data && typeof data === 'object' && 'subscriptionId' in data) {
-                    const nextId = (data as { subscriptionId?: unknown }).subscriptionId
-                    if (typeof nextId === 'string' && nextId.length > 0) {
-                        setSubscriptionId(nextId)
+                    if (event.type === 'connection-changed') {
+                        const data = event.data
+                        if (data && typeof data === 'object' && 'subscriptionId' in data) {
+                            const nextId = (data as { subscriptionId?: unknown }).subscriptionId
+                            if (typeof nextId === 'string' && nextId.length > 0) {
+                                setSubscriptionId(nextId)
+                            }
+                        }
                     }
-                }
-            }
 
-            if (event.type === 'toast') {
-                onToastRef.current?.(event)
-                return
-            }
+                    if (event.type === 'toast') {
+                        onToastRef.current?.(event)
+                        return
+                    }
 
-            if (event.type === 'message-received') {
-                ingestIncomingMessages(event.sessionId, [event.message])
-            }
+                    if (event.type === 'message-received') {
+                        ingestIncomingMessages(event.sessionId, [event.message])
+                    }
 
             if (event.type === 'session-added' || event.type === 'session-updated' || event.type === 'session-removed') {
                 if (event.type === 'session-removed') {
@@ -519,40 +537,40 @@ export function useSSE(options: {
                 }
             }
 
-            if (event.type === 'machine-updated') {
-                if (isMachineRecord(event.data)) {
+                    if (event.type === 'machine-updated') {
+                        if (isMachineRecord(event.data)) {
                     upsertMachine(event.data)
                 } else if (event.data === null || isInactiveMachinePatch(event.data)) {
                     removeMachine(event.machineId)
                 } else if (!hasRecordShape(event.data) || typeof event.data.activeAt !== 'number') {
                     queueMachinesInvalidation()
                 }
-            }
+                    }
 
-            onEventRef.current(event)
-        }
+                    onEventRef.current(event)
+                }
 
-        const handleMessage = (message: MessageEvent<string>) => {
-            if (typeof message.data !== 'string') {
-                return
-            }
+                const handleMessage = (message: MessageEvent<string>) => {
+                    if (typeof message.data !== 'string') {
+                        return
+                    }
 
-            let parsed: unknown
-            try {
-                parsed = JSON.parse(message.data)
-            } catch {
-                return
-            }
+                    let parsed: unknown
+                    try {
+                        parsed = JSON.parse(message.data)
+                    } catch {
+                        return
+                    }
 
-            if (!isObject(parsed)) {
-                return
-            }
-            if (typeof parsed.type !== 'string') {
-                return
-            }
+                    if (!isObject(parsed)) {
+                        return
+                    }
+                    if (typeof parsed.type !== 'string') {
+                        return
+                    }
 
-            handleSyncEvent(parsed as SyncEvent)
-        }
+                    handleSyncEvent(parsed as SyncEvent)
+                }
 
         eventSource.onmessage = handleMessage
         eventSource.onopen = () => {
@@ -600,8 +618,8 @@ export function useSSE(options: {
                 clearTimeout(reconnectTimerRef.current)
                 reconnectTimerRef.current = null
             }
-            eventSource.close()
-            if (eventSourceRef.current === eventSource) {
+            currentEventSource?.close();
+            if (eventSourceRef.current === currentEventSource) {
                 eventSourceRef.current = null
             }
             setSubscriptionId(null)

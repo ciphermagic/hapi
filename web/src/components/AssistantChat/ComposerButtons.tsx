@@ -314,9 +314,7 @@ export function ComposerButtons(props: {
     onSwitch: () => void
     voiceEnabled: boolean
     voiceStatus: ConversationStatus
-    voiceMicMuted?: boolean
     onVoiceToggle: () => void
-    onVoiceMicToggle?: () => void
     onSend: () => void
 }) {
     const { t } = useTranslation()
@@ -383,22 +381,6 @@ export function ComposerButtons(props: {
                         onClick={props.onSwitch}
                     >
                         <SwitchToRemoteIcon />
-                    </button>
-                ) : null}
-
-                {isVoiceConnected && props.onVoiceMicToggle ? (
-                    <button
-                        type="button"
-                        aria-label={props.voiceMicMuted ? t('voice.unmute') : t('voice.mute')}
-                        title={props.voiceMicMuted ? t('voice.unmute') : t('voice.mute')}
-                        className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
-                            props.voiceMicMuted
-                                ? 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                                : 'text-[var(--app-fg)]/60 hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)]'
-                        }`}
-                        onClick={props.onVoiceMicToggle}
-                    >
-                        <SpeakerIcon muted={props.voiceMicMuted} />
                     </button>
                 ) : null}
             </div>

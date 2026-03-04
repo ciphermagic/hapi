@@ -53,11 +53,9 @@ export function HappyComposer(props: {
     onTerminal?: () => void
     autocompletePrefixes?: string[]
     autocompleteSuggestions?: (query: string) => Promise<Suggestion[]>
-    // Voice assistant props
-    voiceStatus?: ConversationStatus
-    voiceMicMuted?: boolean
+    // Voice recognition props
+    voiceStatus?: 'disconnected' | 'connecting' | 'connected' | 'error'
     onVoiceToggle?: () => void
-    onVoiceMicToggle?: () => void
 }) {
     const { t } = useTranslation()
     const {
@@ -78,9 +76,7 @@ export function HappyComposer(props: {
         autocompletePrefixes = ['@', '/', '$'],
         autocompleteSuggestions = defaultSuggestionHandler,
         voiceStatus = 'disconnected',
-        voiceMicMuted = false,
-        onVoiceToggle,
-        onVoiceMicToggle
+        onVoiceToggle
     } = props
 
     // Use ?? so missing values fall back to default (destructuring defaults only handle undefined)
@@ -583,9 +579,7 @@ export function HappyComposer(props: {
                             onSwitch={handleSwitch}
                             voiceEnabled={voiceEnabled}
                             voiceStatus={voiceStatus}
-                            voiceMicMuted={voiceMicMuted}
                             onVoiceToggle={onVoiceToggle ?? (() => {})}
-                            onVoiceMicToggle={onVoiceMicToggle}
                             onSend={handleSend}
                         />
                     </div>
