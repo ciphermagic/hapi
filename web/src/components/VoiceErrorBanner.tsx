@@ -1,20 +1,9 @@
-import { useEffect } from 'react'
 import { useVoiceOptional } from '@/lib/voice-context'
 
 export function VoiceErrorBanner() {
     const voice = useVoiceOptional()
 
     const shouldShow = voice && voice.status === 'error' && voice.errorMessage
-
-    useEffect(() => {
-        if (!shouldShow || !voice) return
-
-        const timer = setTimeout(() => {
-            voice.setStatus('disconnected')
-        }, 3000)
-
-        return () => clearTimeout(timer)
-    }, [shouldShow, voice])
 
     if (!shouldShow) {
         return null

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { AssistantRuntimeProvider } from '@assistant-ui/react'
+import { AssistantRuntimeProvider, useAssistantApi, useAssistantState } from '@assistant-ui/react'
 import type { ApiClient } from '@/api/client'
 import type { AttachmentMetadata, DecryptedMessage, ModelMode, PermissionMode, Session } from '@/types/api'
 import type { ChatBlock, NormalizedMessage } from '@/chat/types'
@@ -16,7 +16,46 @@ import { SessionHeader } from '@/components/SessionHeader'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
 import { useVoiceOptional } from '@/lib/voice-context'
-import { RealtimeVoiceSession, registerSessionStore, registerVoiceHooksStore, voiceHooks } from '@/realtime'
+
+// 内部组件：处理语音识别，可以访问 useAssistantApi
+function VoiceRecognitionHandler(props: {
+    sessionId: string
+    interimTranscript: string
+    setInterimTranscript: (text: string) => void
+    onVoiceToggle: () => void
+}) {
+    const voice = useVoiceOptional()
+    const api = useAssistantApi()
+    const composerText = useAssistantState(({ composer }) => composer.text)
+
+    useEffect(() => {
+        if (!voice) return
+
+        const handleToggle = async () => {
+            if (voice.isActive) {
+                voice.stopVoice()
+                props.setInterimTranscript('')
+            } else {
+                await voice.startVoice(props.sessionId, (text, isFinal) => {
+                    if (isFinal) {
+                        // 最终结果：追加到输入框
+                        const newText = composerText ? `${composerText} ${text}` : text
+                        api.composer().setText(newText)
+                        props.setInterimTranscript('')
+                    } else {
+                        // 临时结果：仅显示，不插入
+                        props.setInterimTranscript(text)
+                    }
+                })
+            }
+        }
+
+        // 替换父组件传入的 onVoiceToggle
+        props.onVoiceToggle = handleToggle
+    }, [voice, props.sessionId, api, composerText, props])
+
+    return null
+}
 
 export function SessionChat(props: {
     api: ApiClient
@@ -51,95 +90,9 @@ export function SessionChat(props: {
         agentFlavor
     )
 
-    // Voice assistant integration
+    // Voice recognition integration
     const voice = useVoiceOptional()
-
-    // Register session store for voice client tools
-    useEffect(() => {
-        registerSessionStore({
-            getSession: () => props.session as { agentState?: { requests?: Record<string, unknown> } } | null,
-            sendMessage: (_sessionId: string, message: string) => props.onSend(message),
-            approvePermission: async (_sessionId: string, requestId: string) => {
-                await props.api.approvePermission(props.session.id, requestId)
-                props.onRefresh()
-            },
-            denyPermission: async (_sessionId: string, requestId: string) => {
-                await props.api.denyPermission(props.session.id, requestId)
-                props.onRefresh()
-            }
-        })
-    }, [props.session, props.api, props.onSend, props.onRefresh])
-
-    useEffect(() => {
-        registerVoiceHooksStore(
-            (sessionId) => (sessionId === props.session.id ? props.session : null),
-            (sessionId) => (sessionId === props.session.id ? props.messages : [])
-        )
-    }, [props.session, props.messages])
-
-    // Track and report new messages to voice assistant
-    // Note: voiceHooks internally checks isVoiceSessionStarted() so we don't need to check voice.status here
-    const prevMessagesRef = useRef<DecryptedMessage[]>([])
-
-    useEffect(() => {
-        const prevIds = new Set(prevMessagesRef.current.map(m => m.id))
-        const newMessages = props.messages.filter(m => !prevIds.has(m.id))
-
-        if (newMessages.length > 0) {
-            voiceHooks.onMessages(props.session.id, newMessages)
-        }
-
-        prevMessagesRef.current = props.messages
-    }, [props.messages, props.session.id])
-
-    // Report ready event when thinking stops
-    // Note: voiceHooks internally checks isVoiceSessionStarted() so we don't need to check voice.status here
-    const prevThinkingRef = useRef(props.session.thinking)
-
-    useEffect(() => {
-        // Detect transition: thinking → not thinking
-        if (prevThinkingRef.current && !props.session.thinking) {
-            voiceHooks.onReady(props.session.id)
-        }
-
-        prevThinkingRef.current = props.session.thinking
-    }, [props.session.thinking, props.session.id])
-
-    // Report permission requests to voice assistant
-    // Note: voiceHooks internally checks isVoiceSessionStarted() so we don't need to check voice.status here
-    const prevRequestIdsRef = useRef<Set<string>>(new Set())
-
-    useEffect(() => {
-        const requests = props.session.agentState?.requests ?? {}
-        const currentIds = new Set(Object.keys(requests))
-
-        for (const [requestId, request] of Object.entries(requests)) {
-            if (!prevRequestIdsRef.current.has(requestId)) {
-                voiceHooks.onPermissionRequested(
-                    props.session.id,
-                    requestId,
-                    (request as { tool?: string }).tool ?? 'unknown',
-                    (request as { arguments?: unknown }).arguments
-                )
-            }
-        }
-
-        prevRequestIdsRef.current = currentIds
-    }, [props.session.agentState?.requests, props.session.id])
-
-    const handleVoiceToggle = useCallback(async () => {
-        if (!voice) return
-        if (voice.status === 'connected' || voice.status === 'connecting') {
-            await voice.stopVoice()
-        } else {
-            await voice.startVoice(props.session.id)
-        }
-    }, [voice, props.session.id])
-
-    const handleVoiceMicToggle = useCallback(() => {
-        if (!voice) return
-        voice.toggleMic()
-    }, [voice])
+    const [interimTranscript, setInterimTranscript] = useState('')
 
     // Track session id to clear caches when it changes
     const prevSessionIdRef = useRef<string | null>(null)
@@ -264,6 +217,11 @@ export function SessionChat(props: {
         allowSendWhenInactive: true
     })
 
+    // Voice toggle handler - 占位函数，实际逻辑在 VoiceRecognitionHandler 中
+    const handleVoiceToggle = useCallback(() => {
+        // 这个函数会被 VoiceRecognitionHandler 替换
+    }, [])
+
     return (
         <div className="flex h-full flex-col">
             <SessionHeader
@@ -283,6 +241,14 @@ export function SessionChat(props: {
             ) : null}
 
             <AssistantRuntimeProvider runtime={runtime}>
+                {/* 语音识别处理器 */}
+                <VoiceRecognitionHandler
+                    sessionId={props.session.id}
+                    interimTranscript={interimTranscript}
+                    setInterimTranscript={setInterimTranscript}
+                    onVoiceToggle={handleVoiceToggle}
+                />
+
                 <div className="relative flex min-h-0 flex-1 flex-col">
                     <HappyThread
                         key={props.session.id}
@@ -323,21 +289,17 @@ export function SessionChat(props: {
                         onTerminal={props.session.active ? handleViewTerminal : undefined}
                         autocompleteSuggestions={props.autocompleteSuggestions}
                         voiceStatus={voice?.status}
-                        voiceMicMuted={voice?.micMuted}
                         onVoiceToggle={voice ? handleVoiceToggle : undefined}
-                        onVoiceMicToggle={voice ? handleVoiceMicToggle : undefined}
                     />
+
+                    {/* 显示临时识别文本 */}
+                    {interimTranscript && (
+                        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 max-w-md px-4 py-2 bg-blue-500/90 text-white text-sm rounded-lg backdrop-blur-sm animate-pulse">
+                            🎤 {interimTranscript}
+                        </div>
+                    )}
                 </div>
             </AssistantRuntimeProvider>
-
-            {/* Voice session component - renders nothing but initializes ElevenLabs */}
-            {voice && (
-                <RealtimeVoiceSession
-                    api={props.api}
-                    micMuted={voice.micMuted}
-                    onStatusChange={voice.setStatus}
-                />
-            )}
         </div>
     )
 }
