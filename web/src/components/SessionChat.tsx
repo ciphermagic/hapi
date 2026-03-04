@@ -20,26 +20,36 @@ import { useVoiceOptional } from '@/lib/voice-context'
 // 内部组件：处理语音识别，可以访问 useAssistantApi
 function VoiceRecognitionHandler(props: {
     sessionId: string
-    interimTranscript: string
     setInterimTranscript: (text: string) => void
-    onVoiceToggle: () => void
+    voiceToggleRef: React.MutableRefObject<(() => Promise<void>) | null>
 }) {
     const voice = useVoiceOptional()
     const api = useAssistantApi()
     const composerText = useAssistantState(({ composer }) => composer.text)
 
+    // 使用 ref 存储最新的 composerText，避免闭包陷阱
+    const composerTextRef = useRef(composerText)
     useEffect(() => {
-        if (!voice) return
+        composerTextRef.current = composerText
+    }, [composerText])
 
-        const handleToggle = async () => {
+    // 创建语音切换函数并暴露给父组件
+    useEffect(() => {
+        if (!voice) {
+            props.voiceToggleRef.current = null
+            return
+        }
+
+        props.voiceToggleRef.current = async () => {
             if (voice.isActive) {
                 voice.stopVoice()
                 props.setInterimTranscript('')
             } else {
                 await voice.startVoice(props.sessionId, (text, isFinal) => {
                     if (isFinal) {
-                        // 最终结果：追加到输入框
-                        const newText = composerText ? `${composerText} ${text}` : text
+                        // 最终结果：追加到输入框（使用 ref 获取最新值）
+                        const currentText = composerTextRef.current
+                        const newText = currentText ? `${currentText} ${text}` : text
                         api.composer().setText(newText)
                         props.setInterimTranscript('')
                     } else {
@@ -50,9 +60,11 @@ function VoiceRecognitionHandler(props: {
             }
         }
 
-        // 替换父组件传入的 onVoiceToggle
-        props.onVoiceToggle = handleToggle
-    }, [voice, props.sessionId, api, composerText, props])
+        // 清理函数
+        return () => {
+            props.voiceToggleRef.current = null
+        }
+    }, [voice, props.sessionId, api, props])
 
     return null
 }
@@ -93,6 +105,7 @@ export function SessionChat(props: {
     // Voice recognition integration
     const voice = useVoiceOptional()
     const [interimTranscript, setInterimTranscript] = useState('')
+    const voiceToggleRef = useRef<(() => Promise<void>) | null>(null)
 
     // Track session id to clear caches when it changes
     const prevSessionIdRef = useRef<string | null>(null)
@@ -217,9 +230,11 @@ export function SessionChat(props: {
         allowSendWhenInactive: true
     })
 
-    // Voice toggle handler - 占位函数，实际逻辑在 VoiceRecognitionHandler 中
-    const handleVoiceToggle = useCallback(() => {
-        // 这个函数会被 VoiceRecognitionHandler 替换
+    // Voice toggle handler - 调用 ref 中存储的函数
+    const handleVoiceToggle = useCallback(async () => {
+        if (voiceToggleRef.current) {
+            await voiceToggleRef.current()
+        }
     }, [])
 
     return (
@@ -244,9 +259,8 @@ export function SessionChat(props: {
                 {/* 语音识别处理器 */}
                 <VoiceRecognitionHandler
                     sessionId={props.session.id}
-                    interimTranscript={interimTranscript}
                     setInterimTranscript={setInterimTranscript}
-                    onVoiceToggle={handleVoiceToggle}
+                    voiceToggleRef={voiceToggleRef}
                 />
 
                 <div className="relative flex min-h-0 flex-1 flex-col">
