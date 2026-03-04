@@ -241,29 +241,10 @@ export function useSSE(options: {
             return
         }
 
-        // 异步获取设备指纹并建立 SSE 连接
-        let currentEventSource: EventSource | null = null;
-
-        const initializeSSEConnection = async () => {
-            setSubscriptionId(null)
-
-            try {
-                // 获取设备指纹
-                const deviceManager = DeviceManager.getInstance();
-                await deviceManager.initialize();
-                const deviceFingerprint = deviceManager.getDeviceFingerprint();
-
-                // 构建带设备指纹的 URL
-                const url = buildEventsUrl(options.baseUrl, options.token, {
-                    ...subscription,
-                    sessionId: subscription.sessionId ?? undefined
-                }, getVisibilityState(), deviceFingerprint || undefined)
-
-                currentEventSource = new EventSource(url)
+        let currentEventSource: EventSource | null = null
         let disconnectNotified = false
         let reconnectRequested = false
-                eventSourceRef.current = currentEventSource
-        lastActivityAtRef.current = Date.now()
+        let watchdogTimer: ReturnType<typeof setInterval> | null = null
 
         const scheduleReconnect = () => {
             const attempt = reconnectAttemptRef.current
@@ -293,8 +274,8 @@ export function useSSE(options: {
             }
             reconnectRequested = true
             notifyDisconnect(reason)
-            eventSource.close()
-            if (eventSourceRef.current === eventSource) {
+            currentEventSource?.close()
+            if (eventSourceRef.current === currentEventSource) {
                 eventSourceRef.current = null
             }
             setSubscriptionId(null)
@@ -480,31 +461,31 @@ export function useSSE(options: {
             })
         }
 
-                const handleSyncEvent = (event: SyncEvent) => {
+        const handleSyncEvent = (event: SyncEvent) => {
             lastActivityAtRef.current = Date.now()
 
             if (event.type === 'heartbeat') {
                 return
             }
 
-                    if (event.type === 'connection-changed') {
-                        const data = event.data
-                        if (data && typeof data === 'object' && 'subscriptionId' in data) {
-                            const nextId = (data as { subscriptionId?: unknown }).subscriptionId
-                            if (typeof nextId === 'string' && nextId.length > 0) {
-                                setSubscriptionId(nextId)
-                            }
-                        }
+            if (event.type === 'connection-changed') {
+                const data = event.data
+                if (data && typeof data === 'object' && 'subscriptionId' in data) {
+                    const nextId = (data as { subscriptionId?: unknown }).subscriptionId
+                    if (typeof nextId === 'string' && nextId.length > 0) {
+                        setSubscriptionId(nextId)
                     }
+                }
+            }
 
-                    if (event.type === 'toast') {
-                        onToastRef.current?.(event)
-                        return
-                    }
+            if (event.type === 'toast') {
+                onToastRef.current?.(event)
+                return
+            }
 
-                    if (event.type === 'message-received') {
-                        ingestIncomingMessages(event.sessionId, [event.message])
-                    }
+            if (event.type === 'message-received') {
+                ingestIncomingMessages(event.sessionId, [event.message])
+            }
 
             if (event.type === 'session-added' || event.type === 'session-updated' || event.type === 'session-removed') {
                 if (event.type === 'session-removed') {
@@ -537,76 +518,111 @@ export function useSSE(options: {
                 }
             }
 
-                    if (event.type === 'machine-updated') {
-                        if (isMachineRecord(event.data)) {
+            if (event.type === 'machine-updated') {
+                if (isMachineRecord(event.data)) {
                     upsertMachine(event.data)
                 } else if (event.data === null || isInactiveMachinePatch(event.data)) {
                     removeMachine(event.machineId)
                 } else if (!hasRecordShape(event.data) || typeof event.data.activeAt !== 'number') {
                     queueMachinesInvalidation()
                 }
-                    }
-
-                    onEventRef.current(event)
-                }
-
-                const handleMessage = (message: MessageEvent<string>) => {
-                    if (typeof message.data !== 'string') {
-                        return
-                    }
-
-                    let parsed: unknown
-                    try {
-                        parsed = JSON.parse(message.data)
-                    } catch {
-                        return
-                    }
-
-                    if (!isObject(parsed)) {
-                        return
-                    }
-                    if (typeof parsed.type !== 'string') {
-                        return
-                    }
-
-                    handleSyncEvent(parsed as SyncEvent)
-                }
-
-        eventSource.onmessage = handleMessage
-        eventSource.onopen = () => {
-            if (reconnectTimerRef.current) {
-                clearTimeout(reconnectTimerRef.current)
-                reconnectTimerRef.current = null
             }
-            reconnectAttemptRef.current = 0
-            disconnectNotified = false
-            lastActivityAtRef.current = Date.now()
-            onConnectRef.current?.()
-        }
-        eventSource.onerror = (error) => {
-            onErrorRef.current?.(error)
-            if (eventSource.readyState === EventSource.CLOSED) {
-                requestReconnect('closed')
-                return
-            }
-            notifyDisconnect('error')
+
+            onEventRef.current(event)
         }
 
-        const watchdogTimer = setInterval(() => {
-            if (eventSourceRef.current !== eventSource) {
+        const handleMessage = (message: MessageEvent<string>) => {
+            if (typeof message.data !== 'string') {
                 return
             }
-            if (getVisibilityState() === 'hidden') {
+
+            let parsed: unknown
+            try {
+                parsed = JSON.parse(message.data)
+            } catch {
                 return
             }
-            if (Date.now() - lastActivityAtRef.current < HEARTBEAT_STALE_MS) {
+
+            if (!isObject(parsed)) {
                 return
             }
-            requestReconnect('heartbeat-timeout')
-        }, HEARTBEAT_WATCHDOG_INTERVAL_MS)
+            if (typeof parsed.type !== 'string') {
+                return
+            }
+
+            handleSyncEvent(parsed as SyncEvent)
+        }
+
+        const initializeSSEConnection = async () => {
+            setSubscriptionId(null)
+
+            try {
+                const deviceManager = DeviceManager.getInstance()
+                await deviceManager.initialize()
+                const deviceFingerprint = deviceManager.getDeviceFingerprint()
+
+                const url = buildEventsUrl(
+                    options.baseUrl,
+                    options.token,
+                    {
+                        ...subscription,
+                        sessionId: subscription.sessionId ?? undefined
+                    },
+                    getVisibilityState(),
+                    deviceFingerprint || undefined
+                )
+
+                currentEventSource = new EventSource(url)
+                eventSourceRef.current = currentEventSource
+                lastActivityAtRef.current = Date.now()
+
+                currentEventSource.onmessage = handleMessage
+
+                currentEventSource.onopen = () => {
+                    if (reconnectTimerRef.current) {
+                        clearTimeout(reconnectTimerRef.current)
+                        reconnectTimerRef.current = null
+                    }
+                    reconnectAttemptRef.current = 0
+                    disconnectNotified = false
+                    lastActivityAtRef.current = Date.now()
+                    onConnectRef.current?.()
+                }
+
+                currentEventSource.onerror = (error) => {
+                    onErrorRef.current?.(error)
+                    if (currentEventSource?.readyState === EventSource.CLOSED) {
+                        requestReconnect('closed')
+                        return
+                    }
+                    notifyDisconnect('error')
+                }
+
+                watchdogTimer = setInterval(() => {
+                    if (eventSourceRef.current !== currentEventSource) {
+                        return
+                    }
+                    if (getVisibilityState() === 'hidden') {
+                        return
+                    }
+                    if (Date.now() - lastActivityAtRef.current < HEARTBEAT_STALE_MS) {
+                        return
+                    }
+                    requestReconnect('heartbeat-timeout')
+                }, HEARTBEAT_WATCHDOG_INTERVAL_MS)
+            } catch (error) {
+                console.error('Failed to initialize SSE connection:', error)
+                onErrorRef.current?.(error)
+                scheduleReconnect()
+            }
+        }
+
+        void initializeSSEConnection()
 
         return () => {
-            clearInterval(watchdogTimer)
+            if (watchdogTimer) {
+                clearInterval(watchdogTimer)
+            }
             if (invalidationTimerRef.current) {
                 clearTimeout(invalidationTimerRef.current)
                 invalidationTimerRef.current = null
@@ -618,7 +634,7 @@ export function useSSE(options: {
                 clearTimeout(reconnectTimerRef.current)
                 reconnectTimerRef.current = null
             }
-            currentEventSource?.close();
+            currentEventSource?.close()
             if (eventSourceRef.current === currentEventSource) {
                 eventSourceRef.current = null
             }
