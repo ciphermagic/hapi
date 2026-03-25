@@ -12,7 +12,7 @@
     },
     "cli": {
       "name": "@twsxtd/hapi",
-      "version": "0.16.0",
+      "version": "0.16.4",
       "bin": {
         "hapi": "bin/hapi.cjs",
       },
@@ -43,11 +43,11 @@
         "vitest": "^4.0.16",
       },
       "optionalDependencies": {
-        "@twsxtd/hapi-darwin-arm64": "0.16.0",
-        "@twsxtd/hapi-darwin-x64": "0.16.0",
-        "@twsxtd/hapi-linux-arm64": "0.16.0",
-        "@twsxtd/hapi-linux-x64": "0.16.0",
-        "@twsxtd/hapi-win32-x64": "0.16.0",
+        "@twsxtd/hapi-darwin-arm64": "0.16.4",
+        "@twsxtd/hapi-darwin-x64": "0.16.4",
+        "@twsxtd/hapi-linux-arm64": "0.16.4",
+        "@twsxtd/hapi-linux-x64": "0.16.4",
+        "@twsxtd/hapi-win32-x64": "0.16.4",
       },
     },
     "docs": {
@@ -861,13 +861,13 @@
 
     "@twsxtd/hapi": ["@twsxtd/hapi@workspace:cli"],
 
-    "@twsxtd/hapi-darwin-arm64": ["@twsxtd/hapi-darwin-arm64@0.16.0", "", { "os": "darwin", "cpu": "arm64", "bin": { "hapi": "bin/hapi" } }, "sha512-6BpfGEtx0xeAO0GqveuyQTPqRFtTMzo40PAA4v8C0ts/tBEKlfsIfjJJGrFr/WbE+140zNHH4/Qu6QvhdRbQEA=="],
+    "@twsxtd/hapi-darwin-arm64": ["@twsxtd/hapi-darwin-arm64@0.16.4", "", { "os": "darwin", "cpu": "arm64", "bin": { "hapi": "bin/hapi" } }, "sha512-eptEVEzCAkycrVrB/Is8ndPNIymB3mWLOfibyFDeebxpszGDE/SoN83K+q4AxvzgYWuEcL6354wVc2tUNRs1dg=="],
 
-    "@twsxtd/hapi-darwin-x64": ["@twsxtd/hapi-darwin-x64@0.16.0", "", { "os": "darwin", "cpu": "x64", "bin": { "hapi": "bin/hapi" } }, "sha512-4uuskZJJ29OK3E1pA3OE4qn0I7uTZ4KmRQk95LHUFDoMpHkai/VdD8MD+Q3O7Hq8lpTYKj1N2QkiCQwcRX+gAQ=="],
+    "@twsxtd/hapi-darwin-x64": ["@twsxtd/hapi-darwin-x64@0.16.4", "", { "os": "darwin", "cpu": "x64", "bin": { "hapi": "bin/hapi" } }, "sha512-12z1U3Tk/8UPW2qyGu8WvCLNGH+lOGJimRKKf97ZdScEBnVFm0Alo1SMSvSowSf2Z6lBKl/AEbWjfi7ofVO6pQ=="],
 
-    "@twsxtd/hapi-linux-arm64": ["@twsxtd/hapi-linux-arm64@0.16.0", "", { "os": "linux", "cpu": "arm64", "bin": { "hapi": "bin/hapi" } }, "sha512-UtgMmyx5AQxDw/RIMHNaoreBGZOAga9blMRKE5Z7DNA+Sro/2Io42HBV10c+rpTnlNvnjjIZPgAy/fKGZvx4sQ=="],
+    "@twsxtd/hapi-linux-arm64": ["@twsxtd/hapi-linux-arm64@0.16.4", "", { "os": "linux", "cpu": "arm64", "bin": { "hapi": "bin/hapi" } }, "sha512-Z0uVFvbU8Q8AON5RqwCoKhExrfT84X4PPtVfx/3H+fz5Sqsz/RxsrTbyJKyrzSljQIYXGh+an/23tVj/O6/GWg=="],
 
-    "@twsxtd/hapi-linux-x64": ["@twsxtd/hapi-linux-x64@0.16.0", "", { "os": "linux", "cpu": "x64", "bin": { "hapi": "bin/hapi" } }, "sha512-RhqDWuLiMYwWmJUd4mj9JuvHHW+kChAwuFPGchTlF9aAHK3e1d9oS5Ka/v8jA1NfDE5Y4/Fhav9FiiTXSVmkUQ=="],
+    "@twsxtd/hapi-linux-x64": ["@twsxtd/hapi-linux-x64@0.16.4", "", { "os": "linux", "cpu": "x64", "bin": { "hapi": "bin/hapi" } }, "sha512-Kj8unf0GhRYe8WYq5L6qy2d0LM8uZBa2C/2dvZ7BuXhT3K/Tc4Driwdjw1HvkgsWjjGNk09TWSpxubVMf9JPWw=="],
 
     "@twsxtd/hapi-win32-x64": ["@twsxtd/hapi-win32-x64@0.16.0", "https://registry.npmmirror.com/@twsxtd/hapi-win32-x64/-/hapi-win32-x64-0.16.0.tgz", { "os": "win32", "cpu": "x64", "bin": { "hapi": "bin/hapi.exe" } }, "sha512-pyYr9Zf/JHF56unUfkrmGTojeJtUc5QWbSj8unAAzGKnF1xy5R9XIGuyhkfpVoUBZRO40bmTjRO5OiWhD9ERnQ=="],
 

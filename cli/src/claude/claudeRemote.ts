@@ -79,7 +79,16 @@ export async function claudeRemote(opts: {
     process.env.DISABLE_AUTOUPDATER = '1';
 
     // Get initial message
-    const initial = await opts.nextMessage();
+    let initial;
+    try {
+        initial = await opts.nextMessage();
+    } catch (e) {
+        if (e instanceof AbortError) {
+            logger.debug(`[claudeRemote] Aborted during initial message`);
+            return;
+        }
+        throw e;
+    }
     if (!initial) { // No initial message - exit
         return;
     }
@@ -116,6 +125,7 @@ export async function claudeRemote(opts: {
         mcpServers: opts.mcpServers,
         permissionMode: initial.mode.permissionMode,
         model: initial.mode.model,
+        effort: initial.mode.effort,
         fallbackModel: initial.mode.fallbackModel,
         customSystemPrompt: initial.mode.customSystemPrompt ? initial.mode.customSystemPrompt + '\n\n' + systemPrompt : undefined,
         appendSystemPrompt: initial.mode.appendSystemPrompt ? initial.mode.appendSystemPrompt + '\n\n' + systemPrompt : systemPrompt,
