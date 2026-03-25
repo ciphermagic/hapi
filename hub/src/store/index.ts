@@ -116,6 +116,14 @@ export class Store {
             return
         }
 
+        if (currentVersion === 3 && SCHEMA_VERSION === 6) {
+            this.migrateFromV3ToV4()
+            this.migrateFromV4ToV5()
+            this.migrateFromV5ToV6()
+            this.setUserVersion(SCHEMA_VERSION)
+            return
+        }
+
         if (currentVersion === 4 && SCHEMA_VERSION === 5) {
             this.migrateFromV4ToV5()
             this.setUserVersion(SCHEMA_VERSION)
